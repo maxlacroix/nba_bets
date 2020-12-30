@@ -1,0 +1,349 @@
+---
+title: "Analyse des matchs d'aujourd'hui"
+author: "Me"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Graphique
+
+**En haut de la diagonale est bon, en dessous, c'est mauvais!**
+
+```{r echo= FALSE, message=FALSE, warning=FALSE}
+library(dplyr)
+library(tibble)
+library(tidyr)
+library(purrr)
+library(lubridate)
+library(ggplot2)
+library(ggrepel)
+library(kableExtra)
+library(jsonlite)
+library(formattable)
+
+# Getting moj data --------------------------------------------------------
+
+
+ajd <- today()
+demain <- today() + 1
+max_events <- 100
+max_makerts <- 100
+sport <- 584 #NBA - si jamais on voulait checker la NFL -> 55
+
+
+url <- paste0("https://content.mojp-sgdigital-jel.com/content-service/api/v1/q/event-list?startTimeFrom=",
+              ajd,"T05%3A00%3A00Z&startTimeTo=",
+              demain,
+              "T04%3A59%3A59Z&started=false&maxEvents=",
+              max_events,
+              "&orderEventsBy=startTime&maxMarkets=",
+              max_makerts,
+              "&orderMarketsBy=displayOrder&marketSortsIncluded=HH%2CHL%2CMR%2CWH&eventSortsIncluded=MTCH&includeChildMarkets=true&prioritisePrimaryMarkets=true&includeMedia=true&drilldownTagIds=",
+              sport)
+
+
+table_nba <- fromJSON(url)
+
+table_nba%>%
+  pluck("data") %>% 
+  pluck("events") %>% 
+  as.data.frame() %>%
+  select(c(name, startTime, markets)) %>% 
+  rename("GameName" = "name") %>% 
+  unnest(cols = c(markets)) %>% 
+  rename("EventName" = "name") %>% 
+  filter(EventName == "Winner 2 Way")%>% 
+  select(eventId, GameName, EventName, outcomes) %>% 
+  unnest(cols = c(outcomes)) %>% 
+  select(-displayOrder) %>% 
+  unnest(cols = c(prices)) %>% 
+  select(eventId,
+         GameName,
+         LongName = name,
+         decimal) -> prices_per_market
+
+# Getting 538 data --------------------------------------------------------
+
+library(readr)
+library(tictoc)
+
+
+fte_nba <- read_csv(url("https://projects.fivethirtyeight.com/nba-model/nba_elo.csv"),
+                    guess_max = 70000) # nécessaire sinon y'a des parsings failures
+
+fte_nba %>% 
+  filter(date == today()) %>% 
+  select(date, team1, team2, elo_prob1, elo_prob2, raptor_prob1, raptor_prob2)%>%
+  rename("x1" = "team1",
+         "x2" = "team2",
+         "y1" = "elo_prob1",
+         "y2" = "elo_prob2",
+         "z1" = "raptor_prob1",
+         "z2" = "raptor_prob2") %>% # un peu sloppy mais nécessaire pour le names_pattern
+  pivot_longer(x1:z2,
+               names_to = c(".value", "id"),
+               names_pattern = "(.)(.)")%>% 
+  rename("Team" = "x",
+         "Prob_elo" = "y",
+         "Prob_raptor" = "z") -> teams_prob
+
+
+
+# Load mapping table ------------------------------------------------------
+
+nba_mapping <- readxl::read_excel("nba_teams.xlsx")
+
+
+teams_prob <- teams_prob %>% 
+  left_join(nba_mapping, by = c("Team" = "ABB"))
+
+prices_per_market %>% 
+  left_join(teams_prob, by = c("LongName" = "LongName")) %>% 
+  mutate(Elo_in_decimal = 1/Prob_elo,
+         Raptor_in_decimal = 1/Prob_raptor) -> data_for_comparison 
+  
+data_for_comparison %>% 
+ggplot(aes(x = Raptor_in_decimal, y = decimal))+
+  geom_point() +
+  geom_abline(slope = 1) +
+  geom_label_repel(aes(label = Team), size = 2.3) +
+  labs(x = "Cote selon 538",
+       y = "Cote selon moj") +
+  coord_fixed() +
+  theme_bw()
+
+```
+
+## Matchups à considérer
+
+Tous les matchups dont la cote de MOJ est trop grosse selon 538
+
+```{r, echo=FALSE}
+data_for_comparison %>%
+  select(-Prob_elo,
+         -id,
+         -eventId,
+         -date,
+         -Elo_in_decimal) %>%
+  mutate(implicit_moj_prob = 1 / decimal) -> potential_bets
+
+potential_bets %>%
+  filter(Raptor_in_decimal < decimal) %>%
+   mutate(
+    implicit_moj_prob = percent(implicit_moj_prob, digits = 1),
+    Prob_raptor = percent(Prob_raptor, digits = 1)
+  ) %>%
+  select(
+    GameName,
+    LongName,
+    decimal,
+    Raptor_in_decimal,
+    implicit_moj_prob,
+    Prob_raptor
+  ) %>%
+ 
+    rename(
+    "Equipe à prendre" = "LongName",
+    "Cote - MOJ" = "decimal",
+    "Probabilité - MOJ" = "implicit_moj_prob",
+    "Cote - 538" = "Raptor_in_decimal",
+    "Probabilité - 538" = "Prob_raptor",
+  ) %>%
+  kbl(digits = 2) %>%
+  kable_styling()
+```
+
+
+## Combinaisons intéressantes 
+
+L'idée ici est de sortir 3 combinaisons intéressantes : 
+
+* Une qui maximimise la cote (implique généralement une moins grande probabilité)
+* Une qui maximise la probabilité (impliqué généralement une moins grande cote)
+* Une qui fait un compromis entre les 2 
+
+On se limite à regarder les combinaisons de taille 3 et de taille 2
+
+
+### Combinaisons de taille 2
+
+```{r, echo = FALSE}
+
+two_by_two <- combn(potential_bets$Team, m = 2) %>%
+  t() %>%
+  as.data.frame(stringsAsFactors = FALSE) %>% 
+  rename("Team1" = "V1",
+         "Team2" = "V2")
+
+two_by_two %>% 
+  left_join(potential_bets %>% select(Team,
+                                      dec_moj1 = decimal,
+                                      dec_rpt1 = Raptor_in_decimal,
+                                      prob_rpt1 = Prob_raptor,
+                                      prob_moj1 = implicit_moj_prob),
+            by = c("Team1" = "Team")) %>% 
+  left_join(potential_bets %>% select(Team,
+                                      dec_moj2 = decimal,
+                                      dec_rpt2 = Raptor_in_decimal,
+                                      prob_rpt2 = Prob_raptor,
+                                      prob_moj2 = implicit_moj_prob),
+            by = c("Team2" = "Team")) %>% 
+  
+  mutate(prob_combo_rpt = prob_rpt1 * prob_rpt2,
+         prob_combo_moj = prob_moj1 * prob_moj2,
+         dec_combo = dec_moj1 * dec_moj2,
+         esp_combo = (dec_combo - 1) * prob_combo_rpt) %>%
+  
+  filter(prob_combo_rpt > prob_combo_moj) %>% # juste les combos rentables
+  
+  unite(Teams, Team1, Team2, sep = "-") %>% 
+  mutate(Best_cote = case_when(
+    dec_combo == max(dec_combo) ~ "Meilleure Cote",
+    TRUE ~ "Not"
+  ),
+  Best_prob = case_when(
+    prob_combo_rpt == max(prob_combo_rpt) ~ "Meilleure Prob",
+    TRUE ~ "Not"
+  ),
+   Best_esp = case_when(
+    esp_combo == max(esp_combo) ~ "Meilleure Esperance",
+    TRUE ~ "Not"
+  )
+  
+  ) %>%
+  select(-dec_moj1,
+         -dec_moj2,
+         -prob_moj1,
+         -prob_moj2,
+         -dec_rpt1,
+         -dec_rpt2,
+         -prob_rpt1,
+         -prob_rpt2) %>% 
+  reshape2::melt(id = c("Teams",
+                        "prob_combo_rpt",
+                        "prob_combo_moj",
+                        "dec_combo",
+                        "esp_combo")) %>% 
+  select(-variable) -> two_by_two_filled
+
+
+data.frame(Index = c("Meilleure Cote",
+            "Meilleure Prob",
+            "Meilleure Esperance"),
+  stringsAsFactors = FALSE) %>% 
+  left_join(two_by_two_filled, by = c("Index" = "value")) %>% 
+    mutate(prob_combo_rpt = percent(prob_combo_rpt, digits = 1),
+         prob_combo_moj = percent(prob_combo_moj, digits = 1)) %>% 
+  
+  
+  rename("Probabilité - 538" = "prob_combo_rpt",
+         "Probabilité - MOJ" = "prob_combo_moj",
+         "Cote - MOJ" = "dec_combo",
+         "Espérance de gain" = "esp_combo") %>% 
+    kbl(digits = 2) %>%
+  kable_styling()
+
+
+```
+
+
+
+### Combinaisons de taille 3
+
+```{r, echo = FALSE}
+
+three_by_three <- combn(potential_bets$Team, m = 3) %>%
+  t() %>%
+  as.data.frame(stringsAsFactors = FALSE) %>% 
+  rename("Team1" = "V1",
+         "Team2" = "V2",
+         "Team3" = "V3")
+
+three_by_three %>% 
+  left_join(potential_bets %>% select(Team,
+                                      dec_moj1 = decimal,
+                                      dec_rpt1 = Raptor_in_decimal,
+                                      prob_rpt1 = Prob_raptor,
+                                      prob_moj1 = implicit_moj_prob),
+            by = c("Team1" = "Team")) %>% 
+  left_join(potential_bets %>% select(Team,
+                                      dec_moj2 = decimal,
+                                      dec_rpt2 = Raptor_in_decimal,
+                                      prob_rpt2 = Prob_raptor,
+                                      prob_moj2 = implicit_moj_prob),
+            by = c("Team2" = "Team")) %>% 
+  
+    left_join(potential_bets %>% select(Team,
+                                      dec_moj3 = decimal,
+                                      dec_rpt3 = Raptor_in_decimal,
+                                      prob_rpt3 = Prob_raptor,
+                                      prob_moj3 = implicit_moj_prob),
+            by = c("Team3" = "Team")) %>% 
+  
+  
+  mutate(prob_combo_rpt = prob_rpt1 * prob_rpt2 * prob_rpt3,
+         prob_combo_moj = prob_moj1 * prob_moj2 * prob_moj3,
+         dec_combo = dec_moj1 * dec_moj2 * dec_moj3,
+         esp_combo = (dec_combo - 1) * prob_combo_rpt) %>% 
+  
+   filter(prob_combo_rpt > prob_combo_moj) %>%  # juste les combos rentables
+  
+  unite(Teams, Team1, Team2, Team3, sep = "-") %>% 
+  mutate(Best_cote = case_when(
+    dec_combo == max(dec_combo) ~ "Meilleure Cote",
+    TRUE ~ "Not"
+  ),
+  Best_prob = case_when(
+    prob_combo_rpt == max(prob_combo_rpt) ~ "Meilleure Prob",
+    TRUE ~ "Not"
+  ),
+   Best_esp = case_when(
+    esp_combo == max(esp_combo) ~ "Meilleure Esperance",
+    TRUE ~ "Not"
+  )
+  
+  ) %>%
+  select(-dec_moj1,
+         -dec_moj2,
+         -dec_moj3,
+         -prob_moj1,
+         -prob_moj2,
+         -prob_moj3,
+         -dec_rpt1,
+         -dec_rpt2,
+         -dec_rpt3,
+         -prob_rpt1,
+         -prob_rpt2,
+         -prob_rpt3) %>% 
+  reshape2::melt(id = c("Teams",
+                        "prob_combo_rpt",
+                        "prob_combo_moj",
+                        "dec_combo",
+                        "esp_combo")) %>% 
+  select(-variable) -> three_by_three_filled
+
+
+data.frame(Index = c("Meilleure Cote",
+            "Meilleure Prob",
+            "Meilleure Esperance"),
+  stringsAsFactors = FALSE) %>% 
+  left_join(three_by_three_filled, by = c("Index" = "value")) %>% 
+   mutate(prob_combo_rpt = percent(prob_combo_rpt, digits = 1),
+         prob_combo_moj = percent(prob_combo_moj, digits = 1)) %>% 
+  
+  
+  rename("Probabilité - 538" = "prob_combo_rpt",
+         "Probabilité - MOJ" = "prob_combo_moj",
+         "Cote - MOJ" = "dec_combo",
+         "Espérance de gain" = "esp_combo") %>% 
+    kbl(digits = 2) %>%
+  kable_styling()
+
+
+```
