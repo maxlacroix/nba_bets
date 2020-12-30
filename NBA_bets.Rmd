@@ -37,6 +37,8 @@ max_makerts <- 100
 sport <- 584 #NBA - si jamais on voulait checker la NFL -> 55
 
 
+teams_to_reconsider <- NULL # mettre NULL si on veut garder toutes les equipes
+
 url <- paste0("https://content.mojp-sgdigital-jel.com/content-service/api/v1/q/event-list?startTimeFrom=",
               ajd,"T05%3A00%3A00Z&startTimeTo=",
               demain,
@@ -174,6 +176,10 @@ On se limite à regarder les combinaisons de taille 3 et de taille 2
 ### Combinaisons de taille 2
 
 ```{r, echo = FALSE}
+
+potential_bets <- potential_bets %>% 
+  filter(!(Team %in% teams_to_reconsider))
+
 
 two_by_two <- combn(potential_bets$Team, m = 2) %>%
   t() %>%
