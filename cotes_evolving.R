@@ -19,6 +19,15 @@ updated_data <- data.frame(
   
 )
 
+
+ajd <- today()
+demain <- today() + 1
+started <- "true"
+
+game_to_observe <- "Boston Celtics at Indiana Pacers"
+team_to_observe <- "Boston Celtics"
+
+
 i <- 1 
 
 while(i > 0){
@@ -29,13 +38,15 @@ while(i > 0){
   
   print(Sys.time())
   
-ajd <- today()
-demain <- today() + 1
+
 
 url <- paste0("https://content.mojp-sgdigital-jel.com/content-service/api/v1/q/event-list?startTimeFrom=",
-              ajd,"T05%3A00%3A00Z&startTimeTo=",
+              ajd,
+              "T05%3A00%3A00Z&startTimeTo=",
               demain,
-              "T04%3A59%3A59Z&started=true&maxEvents=100&orderEventsBy=startTime&maxMarkets=100&orderMarketsBy=displayOrder&marketSortsIncluded=HH%2CHL%2CMR%2CWH&eventSortsIncluded=MTCH&includeChildMarkets=true&prioritisePrimaryMarkets=true&includeMedia=true&drilldownTagIds=584")
+              "T04%3A59%3A59Z&started=",
+              started,
+              "&maxEvents=100&orderEventsBy=startTime&maxMarkets=100&orderMarketsBy=displayOrder&marketSortsIncluded=HH%2CHL%2CMR%2CWH&eventSortsIncluded=MTCH&includeChildMarkets=true&prioritisePrimaryMarkets=true&includeMedia=true&drilldownTagIds=584")
 
 
 table_nba <- fromJSON(url)
@@ -59,8 +70,8 @@ table(prices_per_market$GameName)
 
 
 prices_per_market %>%
-  filter(GameName == "Boston Celtics at Indiana Pacers") %>% 
-  filter(name == "Boston Celtics") %>% 
+  filter(GameName == game_to_observe) %>% 
+  filter(name == team_to_observe) %>% 
   pluck("decimal") -> decimal
 
 updated_data$cote[i] <- decimal
