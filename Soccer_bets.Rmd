@@ -32,15 +32,15 @@ library(stringi)
 
 
 ajd <- today() 
-demain <- today() + 3
+demain <- today() + 1
 max_events <- 500
 max_makerts <- 100
 sport <- 11 
 
 teams_to_reconsider <- NULL# mettre NULL si on veut garder toutes les equipes
 
-leagues_available_moj <- c("Germany Bundesliga","France Ligue 2")
-leagues_available_fte <- c("German Bundesliga", "French Ligue 2")
+leagues_available_moj <- c("Germany Bundesliga","France Ligue 1","France Ligue 2","Belgium Pro League")
+leagues_available_fte <- c("German Bundesliga","French Ligue 1", "French Ligue 2", "Belgian Jupiler League")
 
 url <- paste0("https://content.mojp-sgdigital-jel.com/content-service/api/v1/q/event-list?startTimeFrom=",
               ajd,"T05%3A00%3A00Z&startTimeTo=",
@@ -143,9 +143,9 @@ data_for_comparison %>%
 
 data_for_comparison %>% 
 ggplot(aes(x = Prob_in_decimal, y = decimal))+
-  geom_point() +
+  geom_point(aes( col = League)) +
   geom_abline(slope = 1) +
-  geom_label_repel(aes(label = Name_for_graph, col = League), size = 2.3) +
+  geom_label_repel(aes(label = Name_for_graph, col = League), data = data_for_comparison %>% filter(decimal >= Prob_in_decimal), size = 4) +
   labs(x = "Cote selon 538",
        y = "Cote selon moj") +
   coord_fixed() +
@@ -235,10 +235,10 @@ two_by_two %>%
          prob_combo_moj = prob_moj1 * prob_moj2,
          dec_combo = dec_moj1 * dec_moj2,
          esp_combo = (dec_combo - 1) * prob_combo_rpt) %>% 
+  filter(Team2 == "RC Lens") %>% 
+  filter(prob_combo_rpt > prob_combo_moj) %>%  # juste les combos rentables
   
-  filter(prob_combo_rpt > prob_combo_moj) %>% # juste les combos rentables
-  
-  unite(Teams, Team1, Team2, sep = "-") %>% 
+ # unite(Teams, Team1, Team2, sep = "-") %>% 
   mutate(Best_cote = case_when(
     dec_combo %in% tail(sort(dec_combo),2) ~ "Top 2 - Meilleure Cote",
     TRUE ~ "Not"
@@ -261,7 +261,8 @@ two_by_two %>%
          -dec_rpt2,
          -prob_rpt1,
          -prob_rpt2) %>% 
-  reshape2::melt(id = c("Teams",
+  reshape2::melt(id = c("Team1",
+                        "Team2",
                         "prob_combo_rpt",
                         "prob_combo_moj",
                         "dec_combo",

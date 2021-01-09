@@ -63,7 +63,7 @@ prices_per_market %>%
 
 
 prices_per_market %>% 
-  filter(League == "Germany Bundesliga") %>% 
+  filter(League == "Belgium Pro League") %>% 
   distinct(LongName) %>% View()
   
 
@@ -78,9 +78,10 @@ fte_soccer <- read_csv(url("https://projects.fivethirtyeight.com/soccer-api/club
 
 
 fte_soccer %>% 
+  filter(date == today()) %>% 
   distinct(league) %>% View()
 
 
 fte_soccer %>% 
-  filter(league == "German Bundesliga") %>% 
+  filter(league == "Belgian Jupiler League") %>% 
   distinct(team1) %>% View()

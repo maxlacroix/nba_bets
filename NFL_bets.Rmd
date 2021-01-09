@@ -37,7 +37,7 @@ max_makerts <- 100
 sport <- 55 #NFL - si jamais on voulait checker la NBA -> 584
 
 
-teams_to_reconsider <- c('PIT', 'KC', 'BUF') # mettre NULL si on veut garder toutes les equipes
+teams_to_reconsider <- NULL # mettre NULL si on veut garder toutes les equipes
 
 url <- paste0("https://content.mojp-sgdigital-jel.com/content-service/api/v1/q/event-list?startTimeFrom=",
               ajd,"T05%3A00%3A00Z&startTimeTo=",

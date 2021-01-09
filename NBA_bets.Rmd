@@ -117,7 +117,8 @@ ggplot(aes(x = Raptor_in_decimal, y = decimal))+
   geom_label_repel(aes(label = Team), size = 2.3) +
   labs(x = "Cote selon 538",
        y = "Cote selon moj") +
-  coord_fixed() +
+  xlim(c(0,12))+
+  ylim(c(0,12))+
   theme_bw()
 
 ```
